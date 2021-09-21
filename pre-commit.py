@@ -11,6 +11,9 @@ from pathlib import Path
 from in_toto import runlib
 import in_toto.models.metadata as metadata
 
+# TODO: this needs a better name
+from sigstore_pycode import register_fulcio_key
+
 commit_files = ['git', 'diff-index', '--cached', '--name-only', 'HEAD']
 
 output = subprocess.check_output(commit_files, encoding='UTF-8')
@@ -33,8 +36,11 @@ link_out = runlib.in_toto_run(
 
 pprint.pprint(link_out)
 
+private_key, _ = register_fulcio_key()
+
 # link file
 filename = str(uuid.uuid4())
-Path(filename).touch()
+link_out.sign(private_key)
+link_out.dump(filename)
 
 subprocess.run(["git", "update-index", "--add", filename])

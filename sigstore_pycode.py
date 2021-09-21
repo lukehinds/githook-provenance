@@ -19,6 +19,10 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric import utils
 
+from securesystemslib.interface import import_ecdsa_privatekey_from_file
+from securesystemslib.signer import SSlibSigner
+import binascii
+
 
 AUTH_TIMEOUT = 300
 
@@ -67,11 +71,19 @@ def receive_oauth_callback(timeout):
     return query_details["code"][0], query_details["state"][0]
 
 
-def main():
-    private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
-    public_key = private_key.public_key()
+def register_fulcio_key():
+
+    # this key can be made with in-toto-keygen -t ecdsa [filename]
+    private_key = import_ecdsa_privatekey_from_file('testkey')
+    public_key = private_key['keyval']['public']
+
+    # this abstraction will allow us to sign with HSM's and whatnot.
+    signer = SSlibSigner(private_key)
+    
+    #private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
+    #public_key = private_key.public_key()
     # serializing into PEM
-    rsa_pem = public_key.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo)
+    #rsa_pem = public_key.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo)
     oauth = OAuth2Session(client_id, client_secret, redirect_uri=redirect_uri, scope=scopes)
     authorization_url, state = oauth.authorization_url(auth_uri)
     wait_msg = "Waiting {0} seconds for browser-based authentication..."
@@ -98,15 +110,10 @@ def main():
 
     # hash_object = hashlib.sha256(user_info['email'].encode())
     
-    proof = private_key.sign(
-        user_info['email'].encode(),
-        ec.ECDSA(hashes.SHA256())
-    )
-    proofb64 = base64.b64encode(proof).decode("utf8")
-    pubkey = rsa_pem.decode("utf-8")
-    pubkey = pubkey.replace("\\n", "")
+    proof = signer.sign(user_info['email'].encode())
+    proofb64 = base64.b64encode(binascii.unhexlify(proof.signature)).decode("utf8")
 
-    payload = {"publicKey": {"content": pubkey, "algorithm": "ecdsa"},"signedEmailAddress": proofb64}
+    payload = {"publicKey": {"content": public_key, "algorithm": "ecdsa"},"signedEmailAddress": proofb64}
     y = json.dumps(payload)
     print(y)
     
@@ -117,5 +124,7 @@ def main():
     r = requests.post("https://fulcio.sigstore.dev/api/v1/signingCert", data=y,  headers=headersAPI)
     print(r.status_code)
 
+    return private_key, payload
+
 if __name__ == "__main__":
-    main()
+    register_fulcio_key()
