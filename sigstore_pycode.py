@@ -19,11 +19,6 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric import utils
 
-from securesystemslib.interface import import_ecdsa_privatekey_from_file
-from securesystemslib.signer import SSlibSigner
-import binascii
-
-
 AUTH_TIMEOUT = 300
 
 client_id = "sigstore"
@@ -72,32 +67,23 @@ def receive_oauth_callback(timeout):
 
 
 def register_fulcio_key():
-
-    # this key can be made with in-toto-keygen -t ecdsa [filename]
-    private_key = import_ecdsa_privatekey_from_file('testkey')
-    public_key = private_key['keyval']['public']
-
-    # this abstraction will allow us to sign with HSM's and whatnot.
-    signer = SSlibSigner(private_key)
-    
-    #private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
-    #public_key = private_key.public_key()
+    private_key = ec.generate_private_key(
+       ec.SECP384R1()
+    )
+    public_key = private_key.public_key()
     # serializing into PEM
-    #rsa_pem = public_key.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo)
+    rsa_pem = public_key.public_bytes(encoding=serialization.Encoding.DER, format=serialization.PublicFormat.SubjectPublicKeyInfo)
     oauth = OAuth2Session(client_id, client_secret, redirect_uri=redirect_uri, scope=scopes)
     authorization_url, state = oauth.authorization_url(auth_uri)
     wait_msg = "Waiting {0} seconds for browser-based authentication..."
     print(wait_msg.format(AUTH_TIMEOUT))
     webbrowser.open(authorization_url)
-    # Technically a race condition, but should be faster than the OIDC
-    # redirect flow even when the client has already been authenticated
+
     authorization_code, cb_state = receive_oauth_callback(AUTH_TIMEOUT)
     if cb_state != state:
         msg = "Callback state {0!r} didn't match request state {1!r}"
         raise RuntimeError(msg.format(cb_state, state))
-    # client_token = oauth.fetch_token(
-    #     token_uri, code=authorization_code, client_secret=client_secret
-    # )
+
     session = oauth.fetch_token(
         token_uri, code=authorization_code, client_secret=client_secret
     )
@@ -108,23 +94,26 @@ def register_fulcio_key():
         sys.exit(1)
     print(f"Retrieved user email: {user_info['email']}")
 
-    # hash_object = hashlib.sha256(user_info['email'].encode())
-    
-    proof = signer.sign(user_info['email'].encode())
-    proofb64 = base64.b64encode(binascii.unhexlify(proof.signature)).decode("utf8")
+    proof = private_key.sign(
+        user_info['email'].encode('utf-8'),
+        ec.ECDSA(hashes.SHA256())
+    )
 
-    payload = {"publicKey": {"content": public_key, "algorithm": "ecdsa"},"signedEmailAddress": proofb64}
+    proofb64 = base64.b64encode(proof)
+
+    pub_b64 = base64.b64encode(rsa_pem).decode("utf8")
+
+    payload = {"publicKey": {"content": pub_b64, "algorithm": "ecdsa"},"signedEmailAddress": proofb64}
     y = json.dumps(payload)
-    print(y)
-    
+
     headersAPI = {
             'Authorization': f'Bearer {session["id_token"]}',
             'Content-Type': 'application/json'
     }
-    r = requests.post("https://fulcio.sigstore.dev/api/v1/signingCert", data=y,  headers=headersAPI)
-    print(r.status_code)
 
-    return private_key, payload
+    r = requests.post("https://fulcio.sigstore.dev/api/v1/signingCert", data=y,  headers=headersAPI)
+
+    return private_key, r.content
 
 if __name__ == "__main__":
-    register_fulcio_key()
+    result = register_fulcio_key()
