@@ -34,13 +34,12 @@ link_out = runlib.in_toto_run(
         compact_json=True,
     )
 
-pprint.pprint(link_out)
-
-private_key, _ = register_fulcio_key()
-
+private_key, payload = register_fulcio_key()
+print("Fulcio root: ", str(payload))
 # link file
-filename = str(uuid.uuid4())
-link_out.sign(private_key)
-link_out.dump(filename)
+# filename = str(uuid.uuid4())
+# link_out.sign(private_key)
+# link_out.dump(filename)
 
-subprocess.run(["git", "update-index", "--add", filename])
+# add the link file below
+# subprocess.run(["git", "update-index", "--add", link_file])
