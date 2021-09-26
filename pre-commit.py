@@ -72,4 +72,3 @@ with open(link_filename, 'w') as outfile:
     json.dump(signed, outfile)
 
 subprocess.run(["git", "update-index", "--add", link_filename])
-
