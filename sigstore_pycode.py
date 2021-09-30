@@ -19,6 +19,11 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric import utils
 
+from securesystemslib.interface import import_ecdsa_privatekey_from_file
+from securesystemslib.signer import SSlibSigner
+import binascii
+
+
 AUTH_TIMEOUT = 300
 
 client_id = "sigstore"
@@ -67,17 +72,22 @@ def receive_oauth_callback(timeout):
 
 
 def register_fulcio_key():
+    """ Create Private Key and Perform OpenID session"""
     private_key = ec.generate_private_key(
-       ec.SECP384R1()
+        ec.SECP384R1()
     )
     public_key = private_key.public_key()
-    # serializing into PEM
+
     rsa_pem = public_key.public_bytes(encoding=serialization.Encoding.DER, format=serialization.PublicFormat.SubjectPublicKeyInfo)
+    
     oauth = OAuth2Session(client_id, client_secret, redirect_uri=redirect_uri, scope=scopes)
     authorization_url, state = oauth.authorization_url(auth_uri)
     wait_msg = "Waiting {0} seconds for browser-based authentication..."
     print(wait_msg.format(AUTH_TIMEOUT))
-    webbrowser.open(authorization_url)
+    try:
+        webbrowser.open(authorization_url)
+    except:
+        print("Open the following link in your browser:", authorization_url)
 
     authorization_code, cb_state = receive_oauth_callback(AUTH_TIMEOUT)
     if cb_state != state:
@@ -93,7 +103,7 @@ def register_fulcio_key():
         print("User email must be verified")
         sys.exit(1)
     print(f"Retrieved user email: {user_info['email']}")
-
+    
     proof = private_key.sign(
         user_info['email'].encode('utf-8'),
         ec.ECDSA(hashes.SHA256())
@@ -110,10 +120,10 @@ def register_fulcio_key():
             'Authorization': f'Bearer {session["id_token"]}',
             'Content-Type': 'application/json'
     }
-
     r = requests.post("https://fulcio.sigstore.dev/api/v1/signingCert", data=y,  headers=headersAPI)
+    print(r.status_code)
 
-    return private_key, r.content
+    return private_key, user_info["email"], r.content.decode().split("\n\n")
 
 if __name__ == "__main__":
-    result = register_fulcio_key()
+    register_fulcio_key()
